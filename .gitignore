@@ -70,4 +70,4 @@ Desktop.ini
 timeCard/
 
 # Ignore fetch historical data
-.fetch_historical_data/
+.fetch_historical_data/client_secrets.json
