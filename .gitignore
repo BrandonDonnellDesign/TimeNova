@@ -48,6 +48,13 @@ coverage.xml
 
 # dotenv
 .env
+*.env
+client_secret.json
+credentials.json
+credentials_module.json
+*.pem
+*.key
+*.crt
 
 # VS Code
 .vscode/

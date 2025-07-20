@@ -126,6 +126,10 @@ def login_and_grab_timesheet():
                     if work_dates:
                         pay_period_start = min(work_dates)
                         pay_period_end = max(work_dates)
+                # If no pay period or work dates found, skip processing
+                if not pay_period_start or not pay_period_end:
+                    print("No timecard data available yet")
+                    return
                 def fmt(dtstr):
                     if not dtstr:
                         return "unknown"
