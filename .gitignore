@@ -49,7 +49,7 @@ coverage.xml
 # dotenv
 .env
 *.env
-client_secret.json
+client_secrets.json
 credentials.json
 credentials_module.json
 *.pem
