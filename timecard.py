@@ -30,8 +30,9 @@ def login_and_grab_timesheet():
         page = context.new_page()
         page.set_viewport_size({"width": 2560, "height": 1440})
 
-        # Use a fixed "temp" folder in the current working directory
-        base_output_dir = os.path.join(os.getcwd(), "timeCard")
+        # Use a fixed "timeCard" folder inside the script's directory
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        base_output_dir = os.path.join(script_dir, "timeCard")
         os.makedirs(base_output_dir, exist_ok=True)
         print(f"📁 Base output directory: {base_output_dir}")
         now_str = datetime.now().strftime("%Y%m%d")
