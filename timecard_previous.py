@@ -4,7 +4,7 @@ import csv
 from datetime import datetime
 from playwright.sync_api import sync_playwright
 import json
-import re # Import regex for sanitizing folder names
+import re
 from dotenv import load_dotenv
 
 # --- Load environment variables from .env ---
@@ -17,27 +17,24 @@ API_PREFIX = os.getenv("API_PREFIX")
 
 def sanitize_folder_name(name):
     """Sanitizes a string to be a valid folder name."""
-    # Replace invalid characters with an underscore
     name = re.sub(r'[\\/:*?"<>|]', '_', name)
-    # Replace spaces with underscores
     name = name.replace(' ', '_')
     return name
 
 def login_and_grab_timesheet():
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=False)
         context = browser.new_context()
         page = context.new_page()
         page.set_viewport_size({"width": 2560, "height": 1440})
 
-        # Use a fixed "timeCard" folder inside the script's directory
+        # Create output directory
         script_dir = os.path.dirname(os.path.abspath(__file__))
         base_output_dir = os.path.join(script_dir, "timeCard")
         os.makedirs(base_output_dir, exist_ok=True)
         print(f"📁 Base output directory: {base_output_dir}")
         now_str = datetime.now().strftime("%Y%m%d")
 
-        # Prepare for data capture
         captured_json_data = {"data": None, "found": False}
 
         def handle_response(response):
@@ -45,7 +42,6 @@ def login_and_grab_timesheet():
             if API_PREFIX in url:
                 print(f"✅ Found matching JSON API request: {url}")
                 try:
-                    # Capture the latest JSON data, don't process immediately
                     captured_json_data["data"] = response.body().decode("utf-8")
                     captured_json_data["found"] = True
                 except Exception as e:
@@ -68,9 +64,61 @@ def login_and_grab_timesheet():
         page.wait_for_selector("h4:has-text('Timesheet')")
         page.click("h4:has-text('Timesheet')")
         page.wait_for_load_state("networkidle")
-        print(f"Page URL after Timesheet click: {page.url}")
+        # Extra wait to ensure Angular bindings are ready
+        page.wait_for_timeout(3000) 
+        print(f"📄 Page URL after Timesheet click: {page.url}")
 
-        # 4) Find the iframe containing the timesheet
+        # 4) Select the dropdown and choose the option labeled "Last Pay Period"
+        try:
+            page.wait_for_selector("#MainContentFrame", state="attached", timeout=10000)
+            print("✅ MainContentFrame loaded")
+            dropdown_locator = (page.locator("#MainContentFrame")
+                              .content_frame
+                              .locator("#iFrame")
+                              .content_frame
+                              .locator("#titleRightDiv")
+                              .get_by_role("combobox"))
+
+            # Wait for dropdown to be visible and have options
+            dropdown_locator.wait_for(state="visible", timeout=10000)
+            page.wait_for_timeout(5000)  # Additional wait for Angular to populate options
+
+            # Get all available options
+            options = dropdown_locator.locator("option").all()
+            option_values = [option.get_attribute("value") for option in options if option.get_attribute("value")]
+            option_texts = [option.inner_text() for option in options]
+            print(f"📋 Available dropdown options: {list(zip(option_texts, option_values))}")
+
+            # Find the option with label "Last Pay Period"
+            desired_label = "Last Pay Period"
+            selected_value = None
+            for option in options:
+                if option.inner_text().strip() == desired_label:
+                    selected_value = option.get_attribute("value")
+                    break
+
+            if selected_value:
+                dropdown_locator.select_option(selected_value)
+                print(f"✅ Selected option: {desired_label} (value: {selected_value})")
+            else:
+                print(f"⚠️ Option '{desired_label}' not found in dropdown.")
+                if option_values:
+                    fallback_option = option_values[0]
+                    dropdown_locator.select_option(fallback_option)
+                    print(f"✅ Selected fallback option: {option_texts[0]} (value: {fallback_option})")
+                else:
+                    print("❌ No options available in dropdown.")
+                    browser.close()
+                    return
+
+            page.wait_for_timeout(5000)  # Wait for page to react to selection
+
+        except Exception as e:
+            print(f"❌ Failed to interact with dropdown: {e}")
+            browser.close()
+            return
+
+        # 5) Find the iframe containing the timesheet
         max_wait_time = 120  # seconds
         start_time = time.time()
         timesheet_frame = None
@@ -86,7 +134,7 @@ def login_and_grab_timesheet():
                         timesheet_frame = frame
                         break
                 except Exception as e:
-                    pass # Silently ignore frames that can't be accessed
+                    pass  # Silently ignore frames that can't be accessed
             if timesheet_frame:
                 break
             time.sleep(1)
@@ -96,7 +144,7 @@ def login_and_grab_timesheet():
             browser.close()
             return
 
-        # 5) Navigate directly to the iframe URL
+        # 6) Navigate directly to the iframe URL
         iframe_url = timesheet_frame.url
         print(f"🌐 Navigating directly to timesheet iframe URL: {iframe_url}")
         page.goto(iframe_url)
@@ -104,7 +152,7 @@ def login_and_grab_timesheet():
 
         # Wait additional time for data and network requests
         print("⏳ Waiting 10 seconds for data and API request to finalize...")
-        time.sleep(10) # Increased wait time to ensure all data is loaded and captured
+        time.sleep(10)  # Increased wait time to ensure all data is loaded and captured
 
         # --- Process and save JSON/CSV data only once here ---
         if captured_json_data["found"] and captured_json_data["data"]:
@@ -130,6 +178,7 @@ def login_and_grab_timesheet():
                 # If no pay period or work dates found, skip processing
                 if not pay_period_start or not pay_period_end:
                     print("No timecard data available yet")
+                    browser.close()
                     return
                 def fmt(dtstr):
                     if not dtstr:
@@ -228,18 +277,12 @@ def login_and_grab_timesheet():
                         writer.writerow(row_data)
                 print(f"✅ Timesheet CSV file saved at {csv_path}")
 
-                # --- Output CSV contents to stdout for automation ---
-                print("-----BEGIN_TIMESHEET_CSV-----")
-                with open(csv_path, "r", encoding="utf-8") as csvfile:
-                    print(csvfile.read().strip())
-                print("-----END_TIMESHEET_CSV-----")
-
-                # 6) Locate the timesheet table element (moved here as it depends on json processing success)
+                # 7) Locate the timesheet table element
                 timesheet_element = page.query_selector(TIMESHEET_SELECTOR)
                 if not timesheet_element:
                     print("❌ Could not find timesheet element on iframe page for screenshot.")
                 else:
-                    # 7) Save screenshot
+                    # 8) Save screenshot
                     timesheet_element.screenshot(path=screenshot_path)
                     print(f"📸 Screenshot saved at {screenshot_path}")
 
