@@ -71,3 +71,7 @@ timeCard/
 
 # Ignore fetch historical data
 .fetch_historical_data/client_secrets.json
+
+# Ignore other python files
+.fetch_historical_timesheet.py
+.timecard_previous.py
